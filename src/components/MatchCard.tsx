@@ -54,7 +54,7 @@ export function MatchCard({ event, onPlay }: MatchCardProps) {
 
   const proxyImageUrl = (url?: string) => {
     if (!url) return 'https://placehold.co/32';
-    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    return url;
   };
 
   return (

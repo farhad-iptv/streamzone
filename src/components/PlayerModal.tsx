@@ -8,6 +8,24 @@ interface PlayerModalProps {
   onClose: () => void;
 }
 
+const getProxyUrl = (channel: EventChannel) => {
+  if (!channel.link.includes('.m3u8')) return channel.link;
+  
+  let url = `/api/proxy-stream?url=${encodeURIComponent(channel.link)}`;
+  if (channel.api) {
+    try {
+      if (channel.api.trim().startsWith('{')) {
+        // Validate JSON
+        JSON.parse(channel.api);
+        url += `&headers=${encodeURIComponent(channel.api)}`;
+      }
+    } catch (e) {
+      // Not valid JSON, ignore
+    }
+  }
+  return url;
+};
+
 export function PlayerModal({ event, onClose }: PlayerModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +51,7 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
       
       const startTime = performance.now();
       try {
-        const checkUrl = channel.link.includes('.m3u8') ? `/api/proxy-stream?url=${encodeURIComponent(channel.link)}` : channel.link;
+        const checkUrl = getProxyUrl(channel);
         const response = await fetch(checkUrl, { method: 'HEAD', cache: 'no-store' });
         const latency = Math.round(performance.now() - startTime);
         
@@ -49,7 +67,7 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
         // but it's hard to distinguish. We'll use a no-cors fallback to just get latency.
         try {
           const fbStart = performance.now();
-          const fbCheckUrl = channel.link.includes('.m3u8') ? `/api/proxy-stream?url=${encodeURIComponent(channel.link)}` : channel.link;
+          const fbCheckUrl = getProxyUrl(channel);
           await fetch(fbCheckUrl, { mode: 'no-cors', cache: 'no-store' });
           const latency = Math.round(performance.now() - fbStart);
           setChannelStatus(prev => ({ ...prev, [channel.link]: { status: 'online', latency } }));
@@ -66,10 +84,7 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
       return;
     }
 
-    let url = activeChannel.link;
-    if (url.includes('.m3u8')) {
-      url = `/api/proxy-stream?url=${encodeURIComponent(url)}`;
-    }
+    let url = getProxyUrl(activeChannel);
     setError(null);
 
     // Clear previous children
@@ -211,14 +226,33 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
         return;
       }
 
+      const videoContainer = document.createElement('div');
+      videoContainer.className = 'w-full h-full relative shaka-custom-skin';
       const videoElement = document.createElement('video');
       videoElement.className = 'w-full h-full object-contain';
       videoElement.autoplay = true;
-      videoElement.controls = true;
       videoElement.addEventListener('playing', () => setError(null));
-      containerRef.current.appendChild(videoElement);
+      videoContainer.appendChild(videoElement);
+      containerRef.current.appendChild(videoContainer);
 
-      const player = new shaka.Player(videoElement);
+      const player = new shaka.Player();
+      player.attach(videoElement);
+      
+      const ui = new shaka.ui.Overlay(player, videoContainer, videoElement);
+      const config = {
+        controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
+        overflowMenuButtons: ['quality', 'language', 'picture_in_picture', 'cast', 'playback_rate'],
+        seekBarColors: {
+          base: 'rgba(44, 181, 72, 0.3)',
+          buffered: 'rgba(44, 181, 72, 0.5)',
+          played: '#22c55e',
+        },
+        volumeBarColors: {
+          base: 'rgba(44, 181, 72, 0.3)',
+          level: '#22c55e',
+        }
+      };
+      ui.configure(config);
       
       if (clearkeyConfig) {
          player.configure({
@@ -243,12 +277,11 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
         console.log('Shaka stream loaded successfully');
       }).catch((e: any) => {
         console.error('Shaka Error', e);
-        if (e.code !== 7002 && e.code !== 7000) {
-          setError(`Shaka Player Error: ${e.message || e.code || 'Failed to load stream'}`);
-        }
+        // Do not set fatal error overlay for Shaka, as it often recovers or plays anyway
       });
 
       destroyPlayer = () => {
+        ui.destroy();
         player.destroy();
       };
     } else if (activePlayer === 'videojs') {
@@ -287,6 +320,12 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
           sources: [sourceConfig]
         });
         
+        player.ready(() => {
+          if (typeof player.httpSourceSelector === 'function') {
+            player.httpSourceSelector({ default: 'auto' });
+          }
+        });
+
         destroyPlayer = () => {
           player.dispose();
         };
@@ -311,6 +350,8 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
 
       const plugins = [];
       if (DashShakaPlayback) plugins.push(DashShakaPlayback);
+      const LevelSelector = (window as any).LevelSelector;
+      if (LevelSelector) plugins.push(LevelSelector);
 
       let shakaConfiguration = {};
       if (clearkeyConfig) {
@@ -340,7 +381,15 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
           height: '100%',
           autoPlay: true,
           plugins: plugins,
-          shakaConfiguration: shakaConfiguration
+          shakaConfiguration: shakaConfiguration,
+          levelSelectorConfig: {
+            title: 'Quality',
+            labels: {
+                2: 'High',
+                1: 'Med',
+                0: 'Low',
+            }
+          }
         });
         
         destroyPlayer = () => {

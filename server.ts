@@ -54,7 +54,15 @@ async function startServer() {
         'Referer': new URL(streamUrl).origin + '/',
       };
 
-      // Forward any auth/custom headers from the client if needed, or keep it simple
+      if (req.query.headers) {
+        try {
+          const customHeaders = JSON.parse(req.query.headers as string);
+          Object.assign(headers, customHeaders);
+        } catch (e) {
+          console.error('Failed to parse custom headers', e);
+        }
+      }
+
       const response = await fetch(streamUrl, { headers });
 
       if (!response.ok) {
@@ -74,6 +82,8 @@ async function startServer() {
       if (streamUrl.includes('.m3u8') || (contentType && contentType.includes('mpegurl'))) {
         let text = await response.text();
         
+        const headersQuery = req.query.headers ? `&headers=${encodeURIComponent(req.query.headers as string)}` : '';
+
         // Rewrite URIs in the playlist to use the proxy
         const rewrittenText = text.split('\n').map(line => {
           line = line.trim();
@@ -83,7 +93,7 @@ async function startServer() {
             // e.g. #EXT-X-KEY:METHOD=AES-128,URI="key.php"
             return line.replace(/URI="([^"]+)"/, (match, uri) => {
               const absoluteUri = new URL(uri, streamUrl).toString();
-              return `URI="/api/proxy-stream?url=${encodeURIComponent(absoluteUri)}"`;
+              return `URI="/api/proxy-stream?url=${encodeURIComponent(absoluteUri)}${headersQuery}"`;
             });
           }
           
@@ -91,7 +101,7 @@ async function startServer() {
           
           // It's a segment or playlist URI
           const absoluteUri = new URL(line, streamUrl).toString();
-          return `/api/proxy-stream?url=${encodeURIComponent(absoluteUri)}`;
+          return `/api/proxy-stream?url=${encodeURIComponent(absoluteUri)}${headersQuery}`;
         }).join('\n');
         
         res.send(rewrittenText);
