@@ -7,7 +7,15 @@ async function startServer() {
   const PORT = 3000;
 
   // API route for image proxy
-  app.get('/api/proxy-image', async (req, res) => {
+  app.all('/api/proxy-image', async (req, res) => {
+  // Allow CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-requested-with');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
     try {
       const imageUrl = req.query.url as string;
       if (!imageUrl) {
@@ -15,7 +23,8 @@ async function startServer() {
       }
 
       const response = await fetch(imageUrl, {
-        headers: {
+      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+      headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
           'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
           'Referer': new URL(imageUrl).origin,
@@ -31,6 +40,10 @@ async function startServer() {
         res.setHeader('Content-Type', contentType);
       }
       
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
+      }
+      
       const buffer = await response.arrayBuffer();
       res.send(Buffer.from(buffer));
     } catch (error) {
@@ -40,7 +53,15 @@ async function startServer() {
   });
 
   // API route for stream proxy
-  app.get('/api/proxy-stream', async (req, res) => {
+  app.all('/api/proxy-stream', async (req, res) => {
+  // Allow CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-requested-with');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
     try {
       const streamUrl = req.query.url as string;
       if (!streamUrl) {
@@ -63,7 +84,10 @@ async function startServer() {
         }
       }
 
-      const response = await fetch(streamUrl, { headers });
+      const response = await fetch(streamUrl, { 
+        headers,
+        method: req.method === 'HEAD' ? 'HEAD' : 'GET'
+      });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch stream: ${response.status}`);
@@ -75,9 +99,11 @@ async function startServer() {
       }
       
       // Allow CORS
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      
+
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
+      }
 
       if (streamUrl.includes('.m3u8') || (contentType && contentType.includes('mpegurl'))) {
         let text = await response.text();

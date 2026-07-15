@@ -1,4 +1,13 @@
 export default async function handler(req: any, res: any) {
+  // Allow CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-requested-with');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   try {
     const streamUrl = req.query.url as string;
     if (!streamUrl) {
@@ -18,7 +27,11 @@ export default async function handler(req: any, res: any) {
         console.error('Failed to parse custom headers', e);
       }
     }
-    const response = await fetch(streamUrl, { headers });
+    const response = await fetch(streamUrl, { 
+      headers,
+      method: req.method === 'HEAD' ? 'HEAD' : 'GET'
+    });
+    
     if (!response.ok) {
       throw new Error(`Failed to fetch stream: ${response.status}`);
     }
@@ -27,10 +40,9 @@ export default async function handler(req: any, res: any) {
       res.setHeader('Content-Type', contentType);
     }
     
-    // Allow CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'HEAD') {
+      return res.status(200).end();
+    }
 
     if (streamUrl.includes('.m3u8') || (contentType && contentType.includes('mpegurl'))) {
       let text = await response.text();
