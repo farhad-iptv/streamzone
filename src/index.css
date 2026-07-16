@@ -29,9 +29,9 @@
 
 
 
-/* Shaka Player Custom Skin - Green Theme */
+/* Shaka Player Custom Skin - Red Theme */
 .shaka-custom-skin {
-  --brand-color: #22c55e;
+  --brand-color: #e50914;
 }
 
 /* Hide error panel and Giant Play button */
@@ -68,12 +68,14 @@
   justify-content: center;
 }
 
+.shaka-custom-skin .shaka-controls-button-panel > button .material-icons,
 .shaka-custom-skin .shaka-controls-button-panel > button .material-icons-round {
   color: var(--brand-color) !important;
   font-size: 28px !important;
   transition: opacity 0.2s, transform 0.2s !important;
 }
 
+.shaka-custom-skin .shaka-controls-button-panel > button:hover .material-icons,
 .shaka-custom-skin .shaka-controls-button-panel > button:hover .material-icons-round {
   opacity: 0.8 !important;
   transform: scale(1.1) !important;
@@ -143,6 +145,7 @@
 }
 
 /* Specific button styles */
+.shaka-custom-skin .shaka-play-pause-button .material-icons,
 .shaka-custom-skin .shaka-play-pause-button .material-icons-round {
   font-size: 36px !important;
 }

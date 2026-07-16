@@ -214,75 +214,98 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
         setError('Failed to initialize player.');
       }
     } else if (activePlayer === 'shaka') {
-      const shaka = (window as any).shaka;
-      if (!shaka) {
-        setError('Shaka Player library not loaded.');
-        return;
-      }
-      
-      shaka.polyfill.installAll();
-      if (!shaka.Player.isBrowserSupported()) {
-        setError('Browser not supported by Shaka Player.');
-        return;
-      }
-
-      const videoContainer = document.createElement('div');
-      videoContainer.className = 'w-full h-full relative shaka-custom-skin';
-      const videoElement = document.createElement('video');
-      videoElement.className = 'w-full h-full object-contain';
-      videoElement.autoplay = true;
-      videoElement.addEventListener('playing', () => setError(null));
-      videoContainer.appendChild(videoElement);
-      containerRef.current.appendChild(videoContainer);
-
-      const player = new shaka.Player();
-      player.attach(videoElement);
-      
-      const ui = new shaka.ui.Overlay(player, videoContainer, videoElement);
-      const config = {
-        controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
-        overflowMenuButtons: ['quality', 'language', 'picture_in_picture', 'cast', 'playback_rate'],
-        seekBarColors: {
-          base: 'rgba(44, 181, 72, 0.3)',
-          buffered: 'rgba(44, 181, 72, 0.5)',
-          played: '#22c55e',
-        },
-        volumeBarColors: {
-          base: 'rgba(44, 181, 72, 0.3)',
-          level: '#22c55e',
+      let retryCount = 0;
+      let initTimeout: any;
+      const initShaka = () => {
+        const shaka = (window as any).shaka;
+        if (!shaka || !shaka.ui || !shaka.ui.Overlay) {
+          if (retryCount < 5) {
+            retryCount++;
+            initTimeout = setTimeout(initShaka, 300);
+            return;
+          }
+          setError('Shaka Player library failed to load.');
+          return;
         }
+        
+        shaka.polyfill.installAll();
+        if (!shaka.Player.isBrowserSupported()) {
+          setError('Browser not supported by Shaka Player.');
+          return;
+        }
+
+        const videoContainer = document.createElement('div');
+        videoContainer.className = 'w-full h-full relative shaka-custom-skin';
+        const videoElement = document.createElement('video');
+        videoElement.className = 'w-full h-full object-contain';
+        videoElement.autoplay = true;
+        videoElement.addEventListener('playing', () => setError(null));
+        videoContainer.appendChild(videoElement);
+        containerRef.current.appendChild(videoContainer);
+
+        const player = new shaka.Player();
+        player.attach(videoElement);
+        
+        const ui = new shaka.ui.Overlay(player, videoContainer, videoElement);
+        const config = {
+          controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
+          overflowMenuButtons: ['quality', 'language', 'picture_in_picture', 'cast', 'playback_rate'],
+          seekBarColors: {
+            base: 'rgba(229, 9, 20, 0.3)',
+            buffered: 'rgba(229, 9, 20, 0.5)',
+            played: '#e50914',
+          },
+          volumeBarColors: {
+            base: 'rgba(229, 9, 20, 0.3)',
+            level: '#e50914',
+          }
+        };
+        ui.configure(config);
+        
+        if (clearkeyConfig) {
+           player.configure({
+             drm: {
+               clearKeys: {
+                 [clearkeyConfig.rawKid]: clearkeyConfig.rawKey
+               }
+             }
+           });
+        } else if (licenseServer) {
+           player.configure({
+             drm: {
+               servers: {
+                 'com.widevine.alpha': licenseServer,
+                 'com.microsoft.playready': licenseServer
+               }
+             }
+           });
+        }
+
+        let isDestroyed = false;
+        player.load(url).then(() => {
+          if (isDestroyed) return;
+          console.log('Shaka stream loaded successfully');
+        }).catch((e: any) => {
+          if (isDestroyed) return;
+          console.error('Shaka Error', e);
+          setError('Failed to load stream with Shaka Player.');
+        });
+
+        destroyPlayer = async () => {
+          isDestroyed = true;
+          try {
+            await ui.destroy();
+            await player.destroy();
+            videoContainer.remove();
+          } catch (e) {
+            console.error('Error destroying shaka player', e);
+          }
+        };
       };
-      ui.configure(config);
+      initShaka();
       
-      if (clearkeyConfig) {
-         player.configure({
-           drm: {
-             clearKeys: {
-               [clearkeyConfig.rawKid]: clearkeyConfig.rawKey
-             }
-           }
-         });
-      } else if (licenseServer) {
-         player.configure({
-           drm: {
-             servers: {
-               'com.widevine.alpha': licenseServer,
-               'com.microsoft.playready': licenseServer
-             }
-           }
-         });
-      }
-
-      player.load(url).then(() => {
-        console.log('Shaka stream loaded successfully');
-      }).catch((e: any) => {
-        console.error('Shaka Error', e);
-        // Do not set fatal error overlay for Shaka, as it often recovers or plays anyway
-      });
-
       destroyPlayer = () => {
-        ui.destroy();
-        player.destroy();
+        clearTimeout(initTimeout);
       };
     } else if (activePlayer === 'videojs') {
       const videojs = (window as any).videojs;

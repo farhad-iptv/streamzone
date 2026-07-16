@@ -20,6 +20,36 @@ export default function App() {
   const [activePlayerEvent, setActivePlayerEvent] = useState<SportsEvent | null>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const testUrl = params.get('url');
+    if (testUrl) {
+      setActivePlayerEvent({
+        id: -1,
+        title: 'Test Stream',
+        image: '',
+        cat: 'test',
+        eventInfo: {
+          teamA: 'Test',
+          teamB: 'Stream',
+          teamAFlag: '',
+          teamBFlag: '',
+          eventName: 'Test Event',
+          isHot: 'false',
+          Status: 'live',
+          startTime: new Date().toISOString(),
+          endTime: new Date(Date.now() + 7200000).toISOString()
+        },
+        channels_data: [
+          {
+            title: 'Test Channel',
+            link: testUrl
+          }
+        ]
+      });
+    }
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     
     const loadData = async () => {

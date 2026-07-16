@@ -52,9 +52,13 @@ export function MatchCard({ event, onPlay }: MatchCardProps) {
     }
   };
 
-  const proxyImageUrl = (url?: string) => {
-    if (!url) return 'https://placehold.co/32';
-    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+  const proxyImageUrl = (url?: string, name?: string) => {
+    if (!url) return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'Team')}&background=random`;
+    // Sofascore hotlinking is blocked by Cloudflare. Use a CORS proxy that successfully bypasses it.
+    if (url.includes('sofascore')) {
+      return `https://proxy.cors.sh/${url}`;
+    }
+    return url;
   };
 
   return (
@@ -118,7 +122,7 @@ export function MatchCard({ event, onPlay }: MatchCardProps) {
         {/* Team A */}
         <div className="flex items-center justify-end gap-3 flex-1 min-w-0 w-0">
           <MarqueeText text={event.eventInfo.teamA} className="text-[16px] font-bold text-white" containerClassName="flex-1 min-w-0 flex justify-end" />
-          <img src={proxyImageUrl(event.eventInfo.teamAFlag)} alt={event.eventInfo.teamA} className="w-8 h-8 md:w-10 md:h-10 object-cover shrink-0 rounded-full bg-white" />
+          <img src={proxyImageUrl(event.eventInfo.teamAFlag, event.eventInfo.teamA)} alt={event.eventInfo.teamA} className="w-8 h-8 md:w-10 md:h-10 object-cover shrink-0 rounded-full bg-white" referrerPolicy="no-referrer" />
         </div>
         
         {/* VS / Score Pill */}
@@ -133,7 +137,7 @@ export function MatchCard({ event, onPlay }: MatchCardProps) {
 
         {/* Team B */}
         <div className="flex items-center justify-start gap-3 flex-1 min-w-0 w-0">
-          <img src={proxyImageUrl(event.eventInfo.teamBFlag)} alt={event.eventInfo.teamB} className="w-8 h-8 md:w-10 md:h-10 object-cover shrink-0 rounded-full bg-white" />
+          <img src={proxyImageUrl(event.eventInfo.teamBFlag, event.eventInfo.teamB)} alt={event.eventInfo.teamB} className="w-8 h-8 md:w-10 md:h-10 object-cover shrink-0 rounded-full bg-white" referrerPolicy="no-referrer" />
           <MarqueeText text={event.eventInfo.teamB} className="text-[16px] font-bold text-white" containerClassName="flex-1 min-w-0 flex justify-start" />
         </div>
       </div>
