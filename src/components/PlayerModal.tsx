@@ -9,9 +9,13 @@ interface PlayerModalProps {
 }
 
 const getProxyUrl = (channel: EventChannel) => {
-  if (!channel.link.includes('.m3u8')) return channel.link;
+  let link = channel.link;
+  if (link.includes('|')) {
+    link = link.split('|')[0];
+  }
+  if (!link.includes('.m3u8')) return link;
   
-  let url = `/api/proxy-stream?url=${encodeURIComponent(channel.link)}`;
+  let url = `/api/proxy-stream?url=${encodeURIComponent(link)}`;
   if (channel.api) {
     try {
       if (channel.api.trim().startsWith('{')) {
@@ -30,7 +34,7 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeChannel, setActiveChannel] = useState<EventChannel | null>(event.channels_data?.[0] || null);
-  const [activePlayer, setActivePlayer] = useState<'jw' | 'shaka' | 'videojs' | 'clappr'>('shaka');
+  const [activePlayer, setActivePlayer] = useState<'jw' | 'shaka' | 'videojs' | 'clappr' | 'native'>('shaka');
   const [channelStatus, setChannelStatus] = useState<Record<string, { status: 'checking' | 'online' | 'offline', latency?: number }>>({});
 
   useEffect(() => {
@@ -85,7 +89,28 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
     }
 
     let url = getProxyUrl(activeChannel);
+    let originalUrl = activeChannel.link;
+    if (originalUrl.includes('|')) originalUrl = originalUrl.split('|')[0];
     setError(null);
+
+    // Parse custom headers to pass to proxy
+    let headersQuery = '';
+    if (activeChannel.api) {
+      try {
+        if (activeChannel.api.trim().startsWith('{')) {
+          JSON.parse(activeChannel.api); // validate
+          headersQuery = `&headers=${encodeURIComponent(activeChannel.api)}`;
+        }
+      } catch (e) {}
+    }
+
+    const interceptRequest = (reqUrl: string) => {
+      if (!reqUrl) return reqUrl;
+      if (reqUrl.startsWith('blob:')) return reqUrl;
+      if (reqUrl.startsWith('data:')) return reqUrl;
+      if (reqUrl.includes('/api/proxy-stream')) return reqUrl;
+      return `/api/proxy-stream?url=${encodeURIComponent(reqUrl)}${headersQuery}`;
+    };
 
     // Clear previous children
     while (containerRef.current.firstChild) {
@@ -246,6 +271,10 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
         const player = new shaka.Player();
         player.attach(videoElement);
         
+        player.getNetworkingEngine().registerRequestFilter((type: number, request: any) => {
+          request.uris = request.uris.map((uri: string) => interceptRequest(uri));
+        });
+
         const ui = new shaka.ui.Overlay(player, videoContainer, videoElement);
         const config = {
           controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
@@ -282,7 +311,7 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
         }
 
         let isDestroyed = false;
-        player.load(url).then(() => {
+        player.load(originalUrl).then(() => {
           if (isDestroyed) return;
           console.log('Shaka stream loaded successfully');
         }).catch((e: any) => {
@@ -356,6 +385,70 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
         console.error('Video.js Error:', e);
         setError('Video.js initialization failed.');
       }
+    } else if (activePlayer === 'native') {
+      const videoElement = document.createElement('video');
+      videoElement.className = 'w-full h-full object-contain';
+      videoElement.controls = true;
+      videoElement.autoplay = true;
+      containerRef.current.appendChild(videoElement);
+
+      let dashPlayer: any = null;
+      let hlsPlayer: any = null;
+
+      if (url.includes('.mpd')) {
+        const dashjs = (window as any).dashjs;
+        if (dashjs) {
+          dashPlayer = dashjs.MediaPlayer().create();
+          dashPlayer.extend("RequestModifier", function () {
+            return {
+              modifyRequestURL: function (reqUrl: string) {
+                return interceptRequest(reqUrl);
+              }
+            };
+          }, true);
+          
+          if (clearkeyConfig) {
+            dashPlayer.setProtectionData({
+              'org.w3.clearkey': {
+                clearkeys: {
+                  [clearkeyConfig.rawKid]: clearkeyConfig.rawKey
+                }
+              }
+            });
+          } else if (licenseServer) {
+            dashPlayer.setProtectionData({
+              'com.widevine.alpha': { serverURL: licenseServer },
+              'com.microsoft.playready': { serverURL: licenseServer }
+            });
+          }
+          dashPlayer.initialize(videoElement, originalUrl, true);
+        } else {
+          setError('Dash.js not loaded');
+        }
+      } else if (url.includes('.m3u8')) {
+        const Hls = (window as any).Hls;
+        if (Hls && Hls.isSupported()) {
+          hlsPlayer = new Hls({
+            xhrSetup: function(xhr: any, u: string) {
+              xhr.open('GET', interceptRequest(u), true);
+            }
+          });
+          hlsPlayer.loadSource(originalUrl);
+          hlsPlayer.attachMedia(videoElement);
+        } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+          videoElement.src = url;
+        } else {
+          setError('HLS.js not loaded or not supported');
+        }
+      } else {
+        videoElement.src = url;
+      }
+
+      destroyPlayer = () => {
+        if (dashPlayer) dashPlayer.reset();
+        if (hlsPlayer) hlsPlayer.destroy();
+        videoElement.remove();
+      };
     } else if (activePlayer === 'clappr') {
       const Clappr = (window as any).Clappr;
       const DashShakaPlayback = (window as any).DashShakaPlayback;
@@ -376,9 +469,16 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
       const LevelSelector = (window as any).LevelSelector;
       if (LevelSelector) plugins.push(LevelSelector);
 
-      let shakaConfiguration = {};
+      let shakaConfiguration: any = {
+        shakaOnBeforeLoad: function(shakaPlayerInstance: any) {
+          shakaPlayerInstance.getNetworkingEngine().registerRequestFilter((type: number, request: any) => {
+            request.uris = request.uris.map((uri: string) => interceptRequest(uri));
+          });
+        }
+      };
       if (clearkeyConfig) {
          shakaConfiguration = {
+           ...shakaConfiguration,
            drm: {
              clearKeys: {
                [clearkeyConfig.rawKid]: clearkeyConfig.rawKey
@@ -387,6 +487,7 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
          };
       } else if (licenseServer) {
          shakaConfiguration = {
+           ...shakaConfiguration,
            drm: {
              servers: {
                'com.widevine.alpha': licenseServer,
@@ -398,7 +499,7 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
 
       try {
         const player = new Clappr.Player({
-          source: url,
+          source: originalUrl,
           parentId: `#${playerId}`,
           width: '100%',
           height: '100%',
@@ -443,7 +544,7 @@ export function PlayerModal({ event, onClose }: PlayerModalProps) {
           </div>
           <div className="flex items-center gap-3 pointer-events-auto flex-wrap justify-end max-w-[50%]">
             <div className="flex items-center gap-2">
-              {(['shaka', 'jw', 'clappr', 'videojs'] as const).map(p => (
+              {(['shaka', 'native', 'jw', 'clappr', 'videojs'] as const).map(p => (
                 <button
                   key={p}
                   onClick={() => setActivePlayer(p)}
